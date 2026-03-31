@@ -7,7 +7,15 @@
 .buildlog/
 .history
 
-
+# IDEs / editors
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.project
+.classpath
+.settings/
 
 # Flutter repo-specific
 /bin/cache/
@@ -30,6 +38,10 @@ analysis_benchmark.json
 
 # packages file containing multi-root paths
 .packages.generated
+
+# Melos
+.melos_tool/
+pubspec_overrides.yaml
 
 # Flutter/Dart/Pub related
 **/doc/api/

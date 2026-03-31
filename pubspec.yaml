@@ -1,0 +1,19 @@
+name: flutter_plugins
+description: A curated collection of modular Flutter plugins and UI components managed as a monorepo.
+publish_to: none
+
+environment:
+  sdk: "^3.11.4"
+
+workspace:
+  - packages/advanced_clipboard
+  - packages/advanced_clipboard/example
+
+dev_dependencies:
+  melos: ^7.5.0
+
+melos:
+  useRootAsPackage: true
+  ignore:
+    - "**/ephemeral/**"
+    - "**/.plugin_symlinks/**"
