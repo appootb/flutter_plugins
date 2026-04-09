@@ -4,14 +4,25 @@ Demonstrates how to use the advanced_clipboard plugin.
 
 ## Getting Started
 
-This project is a starting point for a Flutter application.
+This example focuses on **desktop clipboard change listening** (macOS/Windows/Linux).
 
-A few resources to get you started if this is your first Flutter project:
+### Run
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+From the plugin package directory:
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```sh
+cd packages/advanced_clipboard/example
+flutter run -d macos
+# or: flutter run -d windows
+# or: flutter run -d linux
+```
+
+### What the UI shows
+
+- **Start listening / Stop**: controls `AdvancedClipboard.instance.startListening()` and `.stopListening()`.
+- **Latest entry**: the most recent `ClipboardEntry` received from the native layer:
+  - `timestamp`
+  - `sourceApp.name` / `sourceApp.bundleId` (best-effort, platform-specific)
+  - `contents`: a list of `ClipboardContent` items (e.g. `text`, `html`, `url`, `image`, `fileUrl`).
+
+For text-like types the example displays a UTF-8 preview; for binary types it shows the byte length.

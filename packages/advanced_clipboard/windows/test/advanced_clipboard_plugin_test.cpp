@@ -39,5 +39,33 @@ TEST(AdvancedClipboardPlugin, GetPlatformVersion) {
   EXPECT_TRUE(result_string.rfind("Windows ", 0) == 0);
 }
 
+TEST(AdvancedClipboardPlugin, StartStopListening) {
+  AdvancedClipboardPlugin plugin;
+
+  // Test startListening
+  bool start_result = false;
+  plugin.HandleMethodCall(
+      MethodCall("startListening", std::make_unique<EncodableValue>()),
+      std::make_unique<MethodResultFunctions<>>(
+          [&start_result](const EncodableValue* result) {
+            start_result = true;  // Success callback means it worked
+          },
+          nullptr, nullptr));
+
+  // Test stopListening
+  bool stop_result = false;
+  plugin.HandleMethodCall(
+      MethodCall("stopListening", std::make_unique<EncodableValue>()),
+      std::make_unique<MethodResultFunctions<>>(
+          [&stop_result](const EncodableValue* result) {
+            stop_result = true;  // Success callback means it worked
+          },
+          nullptr, nullptr));
+
+  // The methods should complete without throwing
+  EXPECT_TRUE(start_result);
+  EXPECT_TRUE(stop_result);
+}
+
 }  // namespace test
 }  // namespace advanced_clipboard
