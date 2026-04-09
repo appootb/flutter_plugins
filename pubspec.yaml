@@ -8,6 +8,8 @@ environment:
 workspace:
   - packages/advanced_clipboard
   - packages/advanced_clipboard/example
+  - packages/native_ocr
+  - packages/native_ocr/example
 
 dev_dependencies:
   melos: ^7.5.0
