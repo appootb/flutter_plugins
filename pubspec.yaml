@@ -10,6 +10,8 @@ workspace:
   - packages/advanced_clipboard/example
   - packages/native_ocr
   - packages/native_ocr/example
+  - packages/system_usage
+  - packages/system_usage/example
 
 dev_dependencies:
   melos: ^7.5.0
