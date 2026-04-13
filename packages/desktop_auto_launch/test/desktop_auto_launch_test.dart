@@ -9,6 +9,16 @@ class MockDesktopAutoLaunchPlatform
     implements DesktopAutoLaunchPlatform {
   @override
   Future<String?> getPlatformVersion() => Future.value('42');
+
+  @override
+  Future<bool> isEnabled(String? appName) => Future.value(true);
+
+  @override
+  Future<bool> setEnabled(
+    bool enabled, {
+    DesktopAutoLaunchAppConfig app = const DesktopAutoLaunchAppConfig(),
+  }) =>
+      Future.value(enabled);
 }
 
 void main() {
@@ -19,10 +29,23 @@ void main() {
   });
 
   test('getPlatformVersion', () async {
-    DesktopAutoLaunch desktopAutoLaunchPlugin = DesktopAutoLaunch();
     MockDesktopAutoLaunchPlatform fakePlatform = MockDesktopAutoLaunchPlatform();
     DesktopAutoLaunchPlatform.instance = fakePlatform;
 
-    expect(await desktopAutoLaunchPlugin.getPlatformVersion(), '42');
+    expect(await DesktopAutoLaunch.instance.getPlatformVersion(), '42');
+  });
+
+  test('isEnabled', () async {
+    final fakePlatform = MockDesktopAutoLaunchPlatform();
+    DesktopAutoLaunchPlatform.instance = fakePlatform;
+    expect(await DesktopAutoLaunch.instance.isEnabled('MyApp'), isTrue);
+  });
+
+  test('setEnabled forwards to platform', () async {
+    final fakePlatform = MockDesktopAutoLaunchPlatform();
+    DesktopAutoLaunchPlatform.instance = fakePlatform;
+
+    expect(await DesktopAutoLaunch.instance.setEnabled(true), isTrue);
+    expect(await DesktopAutoLaunch.instance.setEnabled(false), isFalse);
   });
 }

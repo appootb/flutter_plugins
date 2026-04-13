@@ -1,8 +1,8 @@
-import 'package:flutter/material.dart';
 import 'dart:async';
 
-import 'package:flutter/services.dart';
 import 'package:desktop_auto_launch/desktop_auto_launch.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 void main() {
   runApp(const MyApp());
@@ -16,8 +16,11 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
+  static const _appName = 'desktop_auto_launch_example';
+
   String _platformVersion = 'Unknown';
-  final _desktopAutoLaunchPlugin = DesktopAutoLaunch();
+  bool? _enabled;
+  String? _error;
 
   @override
   void initState() {
@@ -32,9 +35,20 @@ class _MyAppState extends State<MyApp> {
     // We also handle the message potentially returning null.
     try {
       platformVersion =
-          await _desktopAutoLaunchPlugin.getPlatformVersion() ?? 'Unknown platform version';
+          await DesktopAutoLaunch.instance.getPlatformVersion() ??
+              'Unknown platform version';
     } on PlatformException {
       platformVersion = 'Failed to get platform version.';
+    }
+
+    bool? enabled;
+    String? error;
+    try {
+      enabled = await DesktopAutoLaunch.instance.isEnabled(_appName);
+    } on PlatformException catch (e) {
+      error = '${e.code}: ${e.message ?? ''}'.trim();
+    } catch (e) {
+      error = e.toString();
     }
 
     // If the widget was removed from the tree while the asynchronous platform
@@ -44,15 +58,73 @@ class _MyAppState extends State<MyApp> {
 
     setState(() {
       _platformVersion = platformVersion;
+      _enabled = enabled;
+      _error = error;
     });
+  }
+
+  Future<void> _setEnabled(bool enabled) async {
+    setState(() {
+      _enabled = enabled;
+      _error = null;
+    });
+    try {
+      final ok = await DesktopAutoLaunch.instance.setEnabled(
+        enabled,
+        app: const DesktopAutoLaunchAppConfig(appName: _appName),
+      );
+      if (!ok) {
+        throw PlatformException(
+          code: 'AUTO_START_ERROR',
+          message: 'Native side returned false.',
+        );
+      }
+    } on PlatformException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = '${e.code}: ${e.message ?? ''}'.trim();
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString());
+    } finally {
+      // Refresh status after attempting to set.
+      unawaited(initPlatformState());
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       home: Scaffold(
-        appBar: AppBar(title: const Text('Plugin example app')),
-        body: Center(child: Text('Running on: $_platformVersion\n')),
+        appBar: AppBar(title: const Text('desktop_auto_launch example')),
+        body: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Text('Running on: $_platformVersion'),
+            const SizedBox(height: 12),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Auto-launch at login'),
+              subtitle: Text('appName: $_appName'),
+              trailing: Switch(
+                value: _enabled ?? false,
+                onChanged: _enabled == null ? null : _setEnabled,
+              ),
+            ),
+            if (_enabled == null)
+              const Text('Loading status…')
+            else
+              Text('Enabled: $_enabled'),
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

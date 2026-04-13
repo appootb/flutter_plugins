@@ -1,5 +1,6 @@
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
+import 'desktop_auto_launch.dart';
 import 'desktop_auto_launch_method_channel.dart';
 
 abstract class DesktopAutoLaunchPlatform extends PlatformInterface {
@@ -25,5 +26,18 @@ abstract class DesktopAutoLaunchPlatform extends PlatformInterface {
 
   Future<String?> getPlatformVersion() {
     throw UnimplementedError('platformVersion() has not been implemented.');
+  }
+
+  /// Returns whether auto-launch at login is currently enabled.
+  Future<bool> isEnabled(String? appName) {
+    throw UnimplementedError('isEnabled() has not been implemented.');
+  }
+
+  /// Enables or disables auto-launch at login.
+  Future<bool> setEnabled(
+    bool enabled, {
+    DesktopAutoLaunchAppConfig app = const DesktopAutoLaunchAppConfig(),
+  }) {
+    throw UnimplementedError('setEnabled() has not been implemented.');
   }
 }
