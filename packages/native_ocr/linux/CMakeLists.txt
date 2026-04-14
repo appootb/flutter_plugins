@@ -41,6 +41,15 @@ target_include_directories(${PLUGIN_NAME} INTERFACE
 target_link_libraries(${PLUGIN_NAME} PRIVATE flutter)
 target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::GTK)
 
+# Optional OCR dependency (Tesseract + Leptonica)
+pkg_check_modules(TESSERACT tesseract)
+pkg_check_modules(LEPT lept)
+if (TESSERACT_FOUND AND LEPT_FOUND)
+  target_compile_definitions(${PLUGIN_NAME} PRIVATE HAS_TESSERACT=1)
+  target_include_directories(${PLUGIN_NAME} PRIVATE ${TESSERACT_INCLUDE_DIRS} ${LEPT_INCLUDE_DIRS})
+  target_link_libraries(${PLUGIN_NAME} PRIVATE ${TESSERACT_LIBRARIES} ${LEPT_LIBRARIES})
+endif()
+
 # List of absolute paths to libraries that should be bundled with the plugin.
 # This list could contain prebuilt libraries, or libraries created by an
 # external build triggered from this build file.

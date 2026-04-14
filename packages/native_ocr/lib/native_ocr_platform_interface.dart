@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 import 'native_ocr_method_channel.dart';
@@ -25,5 +27,21 @@ abstract class NativeOcrPlatform extends PlatformInterface {
 
   Future<String?> getPlatformVersion() {
     throw UnimplementedError('platformVersion() has not been implemented.');
+  }
+
+  Future<String?> recognizeText(
+    String imagePath, {
+    List<String>? languageCodes,
+  }) {
+    throw UnimplementedError('recognizeText() has not been implemented.');
+  }
+
+  Future<String?> recognizeTextFromBytes(
+    Uint8List imageBytes, {
+    List<String>? languageCodes,
+  }) {
+    throw UnimplementedError(
+      'recognizeTextFromBytes() has not been implemented.',
+    );
   }
 }

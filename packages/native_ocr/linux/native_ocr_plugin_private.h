@@ -8,3 +8,7 @@
 
 // Handles the getPlatformVersion method call.
 FlMethodResponse *get_platform_version();
+
+// Handles OCR calls.
+FlMethodResponse *recognize_text(FlValue *args);
+FlMethodResponse *recognize_text_from_bytes(FlValue *args);
