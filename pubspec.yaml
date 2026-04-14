@@ -8,6 +8,7 @@ environment:
 workspace:
   - packages/advanced_clipboard
   - packages/advanced_clipboard/example
+  - packages/app_log_kit
   - packages/desktop_auto_launch
   - packages/desktop_auto_launch/example
   - packages/native_ocr
