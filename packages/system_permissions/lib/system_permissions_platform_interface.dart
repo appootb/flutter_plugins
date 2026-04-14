@@ -1,5 +1,6 @@
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
+import 'src/permission_models.dart';
 import 'system_permissions_method_channel.dart';
 
 abstract class SystemPermissionsPlatform extends PlatformInterface {
@@ -25,5 +26,17 @@ abstract class SystemPermissionsPlatform extends PlatformInterface {
 
   Future<String?> getPlatformVersion() {
     throw UnimplementedError('platformVersion() has not been implemented.');
+  }
+
+  Future<PermissionState> check(PermissionKind kind) {
+    throw UnimplementedError('check() has not been implemented.');
+  }
+
+  Future<PermissionState> request(PermissionKind kind) {
+    throw UnimplementedError('request() has not been implemented.');
+  }
+
+  Future<bool> openSystemSettings(PermissionKind kind) {
+    throw UnimplementedError('openSystemSettings() has not been implemented.');
   }
 }
