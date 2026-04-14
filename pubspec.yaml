@@ -12,6 +12,8 @@ workspace:
   - packages/desktop_auto_launch/example
   - packages/native_ocr
   - packages/native_ocr/example
+  - packages/system_permissions
+  - packages/system_permissions/example
   - packages/system_usage
   - packages/system_usage/example
 
