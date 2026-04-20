@@ -11,6 +11,8 @@ workspace:
   - packages/app_log_kit
   - packages/desktop_auto_launch
   - packages/desktop_auto_launch/example
+  - packages/file_preview_plus
+  - packages/file_preview_plus/example
   - packages/native_ocr
   - packages/native_ocr/example
   - packages/system_permissions
