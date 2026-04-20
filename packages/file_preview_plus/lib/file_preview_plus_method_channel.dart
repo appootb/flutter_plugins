@@ -16,4 +16,35 @@ class MethodChannelFilePreviewPlus extends FilePreviewPlusPlatform {
     );
     return version;
   }
+
+  @override
+  Future<FileInfoMap> getFileInfo({required String path}) async {
+    final raw = await methodChannel.invokeMethod<Map<Object?, Object?>>(
+      'getFileInfo',
+      <String, Object?>{'path': path},
+    );
+    if (raw == null) {
+      return <String, Object?>{'path': path};
+    }
+    return raw.map((k, v) => MapEntry(k.toString(), v));
+  }
+
+  @override
+  Future<Uint8List?> getThumbnail({
+    required String path,
+    int width = 256,
+    int height = 256,
+    int? quality,
+  }) async {
+    final bytes = await methodChannel.invokeMethod<Uint8List>(
+      'getThumbnail',
+      <String, Object?>{
+        'path': path,
+        'width': width,
+        'height': height,
+        'quality': quality,
+      },
+    );
+    return bytes;
+  }
 }

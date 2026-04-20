@@ -8,3 +8,9 @@
 
 // Handles the getPlatformVersion method call.
 FlMethodResponse *get_platform_version();
+
+// Handles the getFileInfo method call.
+FlMethodResponse *get_file_info(const gchar* path);
+
+// Handles the getThumbnail method call.
+FlMethodResponse *get_thumbnail(const gchar* path, int width, int height);

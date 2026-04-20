@@ -1,6 +1,10 @@
+import 'dart:typed_data';
+
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 import 'file_preview_plus_method_channel.dart';
+
+typedef FileInfoMap = Map<String, Object?>;
 
 abstract class FilePreviewPlusPlatform extends PlatformInterface {
   /// Constructs a FilePreviewPlusPlatform.
@@ -25,5 +29,19 @@ abstract class FilePreviewPlusPlatform extends PlatformInterface {
 
   Future<String?> getPlatformVersion() {
     throw UnimplementedError('platformVersion() has not been implemented.');
+  }
+
+  Future<FileInfoMap> getFileInfo({required String path}) {
+    throw UnimplementedError('getFileInfo() has not been implemented.');
+  }
+
+  /// Returns PNG-encoded thumbnail bytes (or system icon) for the file.
+  Future<Uint8List?> getThumbnail({
+    required String path,
+    int width = 256,
+    int height = 256,
+    int? quality,
+  }) {
+    throw UnimplementedError('getThumbnail() has not been implemented.');
   }
 }
