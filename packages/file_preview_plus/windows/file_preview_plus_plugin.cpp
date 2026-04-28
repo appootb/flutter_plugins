@@ -1,7 +1,18 @@
+// Must be defined before any header that could include <windows.h>.
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
 #include "file_preview_plus_plugin.h"
 
 // This must be included before many other Windows headers.
 #include <windows.h>
+#ifdef max
+#undef max
+#endif
+#ifdef min
+#undef min
+#endif
 
 // For getPlatformVersion; remove unless needed for your plugin implementation.
 #include <VersionHelpers.h>
@@ -15,6 +26,7 @@
 #include <flutter/plugin_registrar_windows.h>
 #include <flutter/standard_method_codec.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <chrono>
 #include <memory>
