@@ -15,10 +15,6 @@ public class AdvancedClipboardPlugin: NSObject, FlutterPlugin, FlutterStreamHand
     private let pasteboard = NSPasteboard.general
     private var lastChangeCount: Int = NSPasteboard.general.changeCount
 
-    // App tracking
-    private var lastNonSelfApp: NSRunningApplication?
-    private let selfBundleId = Bundle.main.bundleIdentifier
-
     // Ignore flags for writes we initiated
     private var ignoreNextChange = false
 
@@ -34,20 +30,6 @@ public class AdvancedClipboardPlugin: NSObject, FlutterPlugin, FlutterStreamHand
         instance.eventChannel = FlutterEventChannel(
             name: "advanced_clipboard_events", binaryMessenger: registrar.messenger)
         instance.eventChannel.setStreamHandler(instance)
-
-        // Listen for application activation notifications to track last non-self app
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didActivateApplicationNotification,
-            object: nil,
-            queue: .main
-        ) { note in
-            if let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication {
-                // If activated app is not this plugin's app, record it
-                if app.bundleIdentifier != instance.selfBundleId {
-                    instance.lastNonSelfApp = app
-                }
-            }
-        }
     }
 
     // MARK: - MethodChannel handler
@@ -149,7 +131,7 @@ public class AdvancedClipboardPlugin: NSObject, FlutterPlugin, FlutterStreamHand
 
     private func createClipboardEntry(changeCount: Int) -> [String: Any] {
         let timestamp = Int64(Date().timeIntervalSince1970 * 1000)
-        let source = serializeApp(app: lastNonSelfApp ?? NSWorkspace.shared.frontmostApplication)
+        let source = serializeApp(app: NSWorkspace.shared.frontmostApplication)
         let contents = extractContents(from: pasteboard)
 
         return [
