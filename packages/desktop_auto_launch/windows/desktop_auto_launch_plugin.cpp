@@ -16,10 +16,12 @@
 #include <winrt/Windows.ApplicationModel.h>
 #include <winrt/Windows.Foundation.h>
 
+#include <exception>
 #include <memory>
 #include <sstream>
 #include <string>
 #include <optional>
+#include <thread>
 
 namespace desktop_auto_launch {
 
@@ -27,6 +29,32 @@ namespace {
 
 using flutter::EncodableMap;
 using flutter::EncodableValue;
+
+std::string HResultToString(const winrt::hresult_error& e) {
+  std::ostringstream ss;
+  ss << "HRESULT=0x" << std::hex << static_cast<uint32_t>(e.code().value)
+     << " message=" << winrt::to_string(e.message());
+  return ss.str();
+}
+
+// Flutter's platform thread is STA. cppwinrt's blocking wait (IAsyncOperation::get())
+// triggers a Debug assertion on STA threads (!is_sta_thread). Run StartupTask work on
+// a short-lived MTA thread instead.
+template <typename Fn>
+void RunOnWinrtMtaThread(Fn&& fn) {
+  std::exception_ptr ep;
+  std::thread([&]() {
+    try {
+      winrt::init_apartment(winrt::apartment_type::multi_threaded);
+      fn();
+    } catch (...) {
+      ep = std::current_exception();
+    }
+  }).join();
+  if (ep) {
+    std::rethrow_exception(ep);
+  }
+}
 
 bool IsPackagedApp() {
   UINT32 length = 0;
@@ -63,6 +91,11 @@ std::wstring Utf8ToWide(const std::string& s) {
   MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, out.data(), len);
   if (!out.empty() && out.back() == L'\0') out.pop_back();
   return out;
+}
+
+bool EndsWith(const std::wstring& s, const std::wstring& suffix) {
+  if (suffix.size() > s.size()) return false;
+  return std::equal(suffix.rbegin(), suffix.rend(), s.rbegin());
 }
 
 std::wstring GetCurrentExePath() {
@@ -198,19 +231,32 @@ void DesktopAutoLaunchPlugin::HandleMethodCall(
 
       const bool packaged = IsPackagedApp();
       if (packaged) {
-        winrt::init_apartment();
-        // MSIX StartupTask id convention:
-        // taskId = "<appName>Startup"
-        // This must match the startupTask.taskId declared in the app's MSIX/Appx manifest.
-        const std::wstring task_id = key_name + L"Startup";
-        const auto task =
-            winrt::Windows::ApplicationModel::StartupTask::GetAsync(task_id)
-                .get();
-        const auto state = task.State();
-        const bool enabled =
-            state == winrt::Windows::ApplicationModel::StartupTaskState::Enabled ||
-            state == winrt::Windows::ApplicationModel::StartupTaskState::EnabledByPolicy;
-        result->Success(EncodableValue(enabled));
+        try {
+          // MSIX StartupTask id convention:
+          // taskId = "<appName>Startup"
+          // This must match the startupTask.taskId declared in the app's MSIX/Appx manifest.
+          const std::wstring task_id =
+              EndsWith(key_name, L"Startup") ? key_name : (key_name + L"Startup");
+          bool enabled = false;
+          RunOnWinrtMtaThread([&]() {
+            const auto task =
+                winrt::Windows::ApplicationModel::StartupTask::GetAsync(task_id)
+                    .get();
+            const auto state = task.State();
+            enabled =
+                state == winrt::Windows::ApplicationModel::StartupTaskState::Enabled ||
+                state == winrt::Windows::ApplicationModel::StartupTaskState::EnabledByPolicy;
+          });
+          result->Success(EncodableValue(enabled));
+        } catch (const winrt::hresult_error& e) {
+          result->Error("AUTO_START_ERROR", "StartupTask query failed.",
+                        EncodableValue(HResultToString(e)));
+        } catch (const std::exception& e) {
+          result->Error("AUTO_START_ERROR", "StartupTask query failed.",
+                        EncodableValue(std::string(e.what())));
+        } catch (...) {
+          result->Error("AUTO_START_ERROR", "StartupTask query failed.");
+        }
       } else {
         result->Success(EncodableValue(RegistryHasRunValue(key_name)));
       }
@@ -258,28 +304,37 @@ void DesktopAutoLaunchPlugin::HandleMethodCall(
     if (use_packaged) {
       // Packaged (MSIX/Store): StartupTask.
       try {
-        winrt::init_apartment();
         // MSIX StartupTask id convention:
         // taskId = "<appName>Startup"
         // This must match the startupTask.taskId declared in the app's MSIX/Appx manifest.
         const std::wstring task_id = app_name + L"Startup";
-        const auto task =
-            winrt::Windows::ApplicationModel::StartupTask::GetAsync(task_id)
-                .get();
-        if (enabled) {
-          const auto state = task.RequestEnableAsync().get();
-          const bool ok =
-              state == winrt::Windows::ApplicationModel::StartupTaskState::Enabled ||
-              state == winrt::Windows::ApplicationModel::StartupTaskState::EnabledByPolicy;
-          result->Success(EncodableValue(ok));
-        } else {
-          task.Disable();
-          result->Success(EncodableValue(true));
-        }
+        bool success = false;
+        RunOnWinrtMtaThread([&]() {
+          const auto task =
+              winrt::Windows::ApplicationModel::StartupTask::GetAsync(task_id)
+                  .get();
+          if (enabled) {
+            const auto state = task.RequestEnableAsync().get();
+            success =
+                state == winrt::Windows::ApplicationModel::StartupTaskState::Enabled ||
+                state == winrt::Windows::ApplicationModel::StartupTaskState::EnabledByPolicy;
+          } else {
+            task.Disable();
+            success = true;
+          }
+        });
+        result->Success(EncodableValue(success));
+      } catch (const winrt::hresult_error& e) {
+        result->Error("AUTO_START_ERROR",
+                      "Failed to update StartupTask auto-start state.",
+                      EncodableValue(HResultToString(e)));
       } catch (const std::exception& e) {
         result->Error("AUTO_START_ERROR",
                       "Failed to update StartupTask auto-start state.",
                       EncodableValue(std::string(e.what())));
+      } catch (...) {
+        result->Error("AUTO_START_ERROR",
+                      "Failed to update StartupTask auto-start state.");
       }
       return;
     }
