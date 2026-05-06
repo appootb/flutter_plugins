@@ -1,7 +1,18 @@
 #include "advanced_clipboard_plugin.h"
 
+// Avoid Windows min/max macro collisions with std::min/std::max.
+#ifndef NOMINMAX
+#define NOMINMAX 1
+#endif
+
 // This must be included before many other Windows headers.
 #include <windows.h>
+#ifdef min
+#undef min
+#endif
+#ifdef max
+#undef max
+#endif
 #include <ole2.h>
 #include <shlobj.h>
 #include <shellapi.h>
@@ -21,15 +32,210 @@
 #include <chrono>
 #include <algorithm>
 #include <regex>
+#include <cstring>
+#include <cctype>
+#include <string>
 
 #pragma comment(lib, "gdiplus.lib")
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "version.lib")
 #pragma comment(lib, "shell32.lib")
 
+namespace {
+
+constexpr size_t kCfHtmlHeaderSearchBytes = 16384;
+
+bool IsCfHtmlAsciiLineStart(const std::vector<uint8_t>& blob, size_t i) {
+  if (i == 0) return true;
+  return blob[i - 1] == '\n';
+}
+
+bool ParseCfHtmlDigits(const std::vector<uint8_t>& blob, size_t j, size_t& out_end, size_t& out_value) {
+  out_value = 0;
+  while (j < blob.size()) {
+    uint8_t c = blob[j];
+    if (c == ' ' || c == '\t') {
+      ++j;
+      continue;
+    }
+    break;
+  }
+  bool any = false;
+  while (j < blob.size() && blob[j] >= '0' && blob[j] <= '9') {
+    any = true;
+    out_value = out_value * 10u + static_cast<size_t>(blob[j] - '0');
+    ++j;
+  }
+  out_end = j;
+  return any;
+}
+
+// Parse "Key:12345" decimal offset (offsets are byte indexes into entire CF_HTML blob, UTF-8).
+bool ParseCfHtmlKeyDecimal(const std::vector<uint8_t>& blob,
+                           const char* key,
+                           size_t search_limit,
+                           size_t& out_value) {
+  const size_t key_len = std::strlen(key);
+  size_t lim = (std::min)(blob.size(), search_limit);
+  // Match line-starts only to avoid accidental hits in HTML payload.
+  for (size_t i = 0; i + key_len + 1 <= lim; ++i) {
+    if (!IsCfHtmlAsciiLineStart(blob, i)) continue;
+    if (std::memcmp(blob.data() + i, key, key_len) != 0) continue;
+    if (blob[i + key_len] != ':') continue;
+    size_t end_after = i + key_len + 1;
+    size_t unused_end = end_after;
+    if (!ParseCfHtmlDigits(blob, end_after, unused_end, out_value)) continue;
+    return true;
+  }
+  return false;
+}
+
+// Advance byte index consuming well-formed UTF-8 code units; trims trailing partial unit at slice end.
+size_t CfHtmlValidUtf8EndExclusive(const std::vector<uint8_t>& blob,
+                                   size_t start,
+                                   size_t end_exclusive) {
+  if (start >= end_exclusive || end_exclusive > blob.size()) return start;
+  size_t i = start;
+  while (i < end_exclusive) {
+    uint8_t c0 = blob[i];
+    size_t nbytes = 1;
+    if (c0 <= 0x7F) nbytes = 1;
+    else if ((c0 & 0xE0) == 0xC0) nbytes = 2;
+    else if ((c0 & 0xF0) == 0xE0) nbytes = 3;
+    else if ((c0 & 0xF8) == 0xF0) nbytes = 4;
+    else {
+      ++i;  // stray continuation or invalid trail; skip 1 byte
+      continue;
+    }
+    if (i + nbytes > end_exclusive)
+      break;  // truncated at end -> stop before incomplete sequence
+    if (nbytes > 1) {
+      bool ok = true;
+      for (size_t k = 1; k < nbytes; ++k) {
+        if ((blob[i + k] & 0xC0) != 0x80) {
+          ok = false;
+          break;
+        }
+      }
+      if (!ok) {
+        ++i;
+        continue;
+      }
+    }
+    i += nbytes;
+  }
+  return i;
+}
+
+std::vector<uint8_t> CfHtmlSliceValidated(const std::vector<uint8_t>& blob,
+                                          size_t start,
+                                          size_t end_exclusive) {
+  if (start > blob.size() || end_exclusive > blob.size() || start >= end_exclusive) {
+    return {};
+  }
+  size_t end_good = CfHtmlValidUtf8EndExclusive(blob, start, end_exclusive);
+  if (end_good <= start) return {};
+  return std::vector<uint8_t>(blob.begin() + start, blob.begin() + end_good);
+}
+
+size_t CfHtmlDoubleNewlinePastHeader(const std::vector<uint8_t>& blob,
+                                     size_t search_limit) {
+  size_t lim = (std::min)(blob.size(), search_limit);
+  for (size_t i = 0; i + 3 < lim; ++i) {
+    if (blob[i] == '\r' && blob[i + 1] == '\n' && blob[i + 2] == '\r' && blob[i + 3] == '\n')
+      return i + 4;
+  }
+  for (size_t i = 0; i + 1 < lim; ++i) {
+    if (blob[i] == '\n' && blob[i + 1] == '\n') return i + 2;
+  }
+  return static_cast<size_t>(-1);
+}
+
+bool CfHtmlMatchAtIc(const std::vector<uint8_t>& blob,
+                     size_t i,
+                     const char* ascii_needle_uppercase) {
+  size_t len = std::strlen(ascii_needle_uppercase);
+  if (i + len > blob.size()) return false;
+  for (size_t k = 0; k < len; ++k) {
+    if (std::toupper(static_cast<unsigned char>(blob[i + k])) !=
+        ascii_needle_uppercase[k])
+      return false;
+  }
+  return true;
+}
+
+size_t CfHtmlFindMarkupStart(const std::vector<uint8_t>& blob, size_t scan_from) {
+  for (size_t i = scan_from; i < blob.size(); ++i) {
+    if (blob[i] != '<') continue;
+    if (CfHtmlMatchAtIc(blob, i, "<!DOCTYPE")) return i;
+    if (CfHtmlMatchAtIc(blob, i, "<HTML")) return i;
+  }
+  return static_cast<size_t>(-1);
+}
+
+bool CfHtmlLooksStructuredMime(const std::vector<uint8_t>& blob) {
+  size_t sniff = (std::min)(blob.size(), kCfHtmlHeaderSearchBytes);
+  std::string head(reinterpret_cast<const char*>(blob.data()), sniff);
+  if (head.find("Version:") != std::string::npos) return true;
+  if (head.find("StartHTML:") != std::string::npos) return true;
+  size_t unused = 0;
+  return ParseCfHtmlKeyDecimal(blob, "StartFragment", kCfHtmlHeaderSearchBytes,
+                               unused);
+}
+
+// Takes raw CF_HTML / HTML clipboard bytes as read from clipboard; returns UTF-8 bytes for Dart
+// (header stripped - fragment slice or fallbacks).
+std::vector<uint8_t> CfHtmlBlobToDartUtf8Bytes(const std::vector<uint8_t>& blob) {
+  if (blob.empty()) return {};
+
+  size_t sf = 0, ef = 0;
+  bool have_frag = ParseCfHtmlKeyDecimal(blob, "StartFragment", kCfHtmlHeaderSearchBytes,
+                                         sf) &&
+                   ParseCfHtmlKeyDecimal(blob, "EndFragment", kCfHtmlHeaderSearchBytes,
+                                         ef);
+  // Microsoft: [start, end) exclusive end.
+  if (have_frag && sf < ef && ef <= blob.size() && sf <= blob.size()) {
+    auto out = CfHtmlSliceValidated(blob, sf, ef);
+    if (!out.empty()) return out;
+  }
+
+  size_t sh = 0, eh = 0;
+  bool have_html = ParseCfHtmlKeyDecimal(blob, "StartHTML", kCfHtmlHeaderSearchBytes, sh) &&
+                   ParseCfHtmlKeyDecimal(blob, "EndHTML", kCfHtmlHeaderSearchBytes, eh);
+  // StartHTML:-1 / placeholder values appear in the wild - require non-negative sane range only.
+  if (have_html && sh < eh && eh <= blob.size() && sh < blob.size()) {
+    auto out = CfHtmlSliceValidated(blob, sh, eh);
+    if (!out.empty()) return out;
+  }
+
+  size_t dn = CfHtmlDoubleNewlinePastHeader(blob, kCfHtmlHeaderSearchBytes);
+  if (dn != static_cast<size_t>(-1) && dn <= blob.size()) {
+    auto out = CfHtmlSliceValidated(blob, dn, blob.size());
+    if (!out.empty()) return out;
+  }
+
+  size_t mark = CfHtmlFindMarkupStart(blob, 0);
+  if (mark != static_cast<size_t>(-1)) {
+    auto out = CfHtmlSliceValidated(blob, mark, blob.size());
+    if (!out.empty()) return out;
+  }
+
+  if (!CfHtmlLooksStructuredMime(blob)) {
+    // Already plain HTML (no CF_HTML header).
+    auto out = CfHtmlSliceValidated(blob, 0, blob.size());
+    if (!out.empty()) return out;
+    return blob;
+  }
+
+  // Last resort: pass through raw bytes unchanged.
+  return blob;
+}
+
+}  // namespace
+
 namespace advanced_clipboard {
 
-// Static instance pointer for WinEventProc callback
+// Static instance pointer for WndProc / plugin window
 AdvancedClipboardPlugin* AdvancedClipboardPlugin::instance_ = nullptr;
 
 // Some Windows apps (notably UWP) are hosted by a frame process; the real app
@@ -473,11 +679,12 @@ flutter::EncodableList AdvancedClipboardPlugin::ExtractContents() {
     }
   }
 
-  // Check for HTML
+  // Check for HTML (CF_HTML / "HTML Format" - strip Microsoft header before Dart)
   if (CF_HTML && IsClipboardFormatAvailable(CF_HTML)) {
     auto html_data = this->GetClipboardData(CF_HTML);
     if (!html_data.empty()) {
-      addPart("html", html_data);
+      auto html_payload = CfHtmlBlobToDartUtf8Bytes(html_data);
+      addPart("html", html_payload);
     }
   }
 
