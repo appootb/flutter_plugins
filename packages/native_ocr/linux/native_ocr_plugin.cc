@@ -111,7 +111,7 @@ static FlMethodResponse* TessOcrPix(Pix* pix, const std::string& lang) {
   if (api.Init(nullptr, lang.c_str(), tesseract::OEM_DEFAULT) != 0) {
     pixDestroy(&pix);
     return FL_METHOD_RESPONSE(fl_method_error_response_new(
-        "OCR_ERROR", "Failed to initialize Tesseract.", lang.c_str()));
+        "OCR_ERROR", "Failed to initialize Tesseract.", fl_value_new_string(lang.c_str())));
   }
   api.SetImage(pix);
   char* text = api.GetUTF8Text();
