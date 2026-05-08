@@ -80,7 +80,7 @@ GdkPixbuf* load_icon_pixbuf(GIcon* icon, int size) {
 
   // Prefer themed icon names if available.
   if (G_IS_THEMED_ICON(icon)) {
-    gchar** names = g_themed_icon_get_names(G_THEMED_ICON(icon));
+    const gchar* const* names = g_themed_icon_get_names(G_THEMED_ICON(icon));
     if (names != nullptr) {
       for (int i = 0; names[i] != nullptr; i++) {
         if (gtk_icon_theme_has_icon(theme, names[i])) {
