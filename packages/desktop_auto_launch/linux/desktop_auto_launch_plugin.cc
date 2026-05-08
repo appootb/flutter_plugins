@@ -4,6 +4,7 @@
 #include <sys/utsname.h>
 
 #include <gio/gio.h>
+#include <glib/gstdio.h>
 
 #include <cstring>
 #include <string>
@@ -185,7 +186,9 @@ static void desktop_auto_launch_plugin_handle_method_call(
       const gchar* msg = error != nullptr ? error->message : nullptr;
       if (error != nullptr) g_error_free(error);
       response = FL_METHOD_RESPONSE(fl_method_error_response_new(
-          kAutoStartError, "Failed to write autostart entry.", msg));
+          kAutoStartError,
+          "Failed to write autostart entry.",
+          msg != nullptr ? fl_value_new_string(msg) : nullptr));
       fl_method_call_respond(method_call, response, nullptr);
       return;
     }
