@@ -1,6 +1,5 @@
 package dev.appootb.file_preview_plus
 
-import android.content.ContentResolver
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -8,7 +7,6 @@ import android.graphics.BitmapFactory
 import android.media.ThumbnailUtils
 import android.net.Uri
 import android.os.Build
-import android.provider.MediaStore
 import android.util.Size
 import android.webkit.MimeTypeMap
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -24,10 +22,6 @@ import java.util.concurrent.Executors
 class FilePreviewPlusPlugin :
     FlutterPlugin,
     MethodCallHandler {
-    // The MethodChannel that will the communication between Flutter and native Android
-    //
-    // This local reference serves to register the plugin with the Flutter Engine and unregister it
-    // when the Flutter Engine is detached from the Activity
     private lateinit var channel: MethodChannel
     private lateinit var appContext: Context
     private val executor = Executors.newCachedThreadPool()
@@ -40,7 +34,7 @@ class FilePreviewPlusPlugin :
 
     override fun onMethodCall(
         call: MethodCall,
-        result: Result
+        result: Result,
     ) {
         when (call.method) {
             "getPlatformVersion" -> result.success("Android ${android.os.Build.VERSION.RELEASE}")
@@ -53,6 +47,51 @@ class FilePreviewPlusPlugin :
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         channel.setMethodCallHandler(null)
         executor.shutdown()
+    }
+
+    private fun handleGetFileInfo(call: MethodCall, result: Result) {
+        val path = call.argument<String>("path")
+        if (path.isNullOrBlank()) {
+            result.error("invalid_args", "Missing path", null)
+            return
+        }
+        executor.execute {
+            try {
+                val f = File(path)
+                val map =
+                    hashMapOf<String, Any?>(
+                        "path" to path,
+                        "name" to f.name,
+                        "size" to (if (f.exists()) f.length() else 0L),
+                        "modifiedMs" to (if (f.exists()) f.lastModified() else 0L),
+                        "isDirectory" to f.isDirectory,
+                    )
+                val mime = guessMimeType(path)
+                if (mime != null) map["mimeType"] = mime
+                result.success(map.filterValues { it != null })
+            } catch (e: Exception) {
+                result.error("file_info_failed", e.message, null)
+            }
+        }
+    }
+
+    private fun handleGetThumbnail(call: MethodCall, result: Result) {
+        val path = call.argument<String>("path")
+        if (path.isNullOrBlank()) {
+            result.error("invalid_args", "Missing path", null)
+            return
+        }
+        val width = (call.argument<Number>("width")?.toInt() ?: 256).coerceAtLeast(1)
+        val height = (call.argument<Number>("height")?.toInt() ?: 256).coerceAtLeast(1)
+
+        executor.execute {
+            try {
+                val bytes = createThumbnailBytes(appContext, path, width, height)
+                result.success(bytes)
+            } catch (e: Exception) {
+                result.error("thumbnail_failed", e.message, null)
+            }
+        }
     }
 }
 
@@ -70,50 +109,6 @@ private fun bitmapToPngBytes(bitmap: Bitmap): ByteArray {
 
 private fun isApk(path: String): Boolean = path.lowercase().endsWith(".apk")
 
-private fun FilePreviewPlusPlugin.handleGetFileInfo(call: MethodCall, result: Result) {
-    val path = call.argument<String>("path")
-    if (path.isNullOrBlank()) {
-        result.error("invalid_args", "Missing path", null)
-        return
-    }
-    executor.execute {
-        try {
-            val f = File(path)
-            val map = hashMapOf<String, Any?>(
-                "path" to path,
-                "name" to f.name,
-                "size" to (if (f.exists()) f.length() else 0L),
-                "modifiedMs" to (if (f.exists()) f.lastModified() else 0L),
-                "isDirectory" to f.isDirectory
-            )
-            val mime = guessMimeType(path)
-            if (mime != null) map["mimeType"] = mime
-            result.success(map.filterValues { it != null })
-        } catch (e: Exception) {
-            result.error("file_info_failed", e.message, null)
-        }
-    }
-}
-
-private fun FilePreviewPlusPlugin.handleGetThumbnail(call: MethodCall, result: Result) {
-    val path = call.argument<String>("path")
-    if (path.isNullOrBlank()) {
-        result.error("invalid_args", "Missing path", null)
-        return
-    }
-    val width = (call.argument<Number>("width")?.toInt() ?: 256).coerceAtLeast(1)
-    val height = (call.argument<Number>("height")?.toInt() ?: 256).coerceAtLeast(1)
-
-    executor.execute {
-        try {
-            val bytes = createThumbnailBytes(appContext, path, width, height)
-            result.success(bytes)
-        } catch (e: Exception) {
-            result.error("thumbnail_failed", e.message, null)
-        }
-    }
-}
-
 private fun createThumbnailBytes(context: Context, path: String, width: Int, height: Int): ByteArray? {
     val file = File(path)
     if (!file.exists()) return null
@@ -121,8 +116,8 @@ private fun createThumbnailBytes(context: Context, path: String, width: Int, hei
     if (isApk(path)) {
         val pm: PackageManager = context.packageManager
         val pi = pm.getPackageArchiveInfo(path, 0)
-        if (pi != null) {
-            val appInfo = pi.applicationInfo
+        val appInfo = pi?.applicationInfo
+        if (appInfo != null) {
             appInfo.sourceDir = path
             appInfo.publicSourceDir = path
             val drawable = pm.getApplicationIcon(appInfo)
@@ -149,21 +144,28 @@ private fun createThumbnailBytes(context: Context, path: String, width: Int, hei
     val isVideo = mime?.startsWith("video/") == true
     val isImage = mime?.startsWith("image/") == true
 
-    val bmp: Bitmap? = when {
-        isVideo -> ThumbnailUtils.createVideoThumbnail(file, size, null)
-        isImage -> ThumbnailUtils.createImageThumbnail(file, size, null)
-        else -> null
-    }
+    val bmp: Bitmap? =
+        when {
+            isVideo -> ThumbnailUtils.createVideoThumbnail(file, size, null)
+            isImage -> ThumbnailUtils.createImageThumbnail(file, size, null)
+            else -> null
+        }
 
     if (bmp != null) return bitmapToPngBytes(bmp)
 
     // Final fallback: decode bounds and scale a bitmap (may fail for non-images).
     return try {
-        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        val options =
+            BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
         BitmapFactory.decodeFile(path, options)
         if (options.outWidth <= 0 || options.outHeight <= 0) return null
         val sample = calculateInSampleSize(options.outWidth, options.outHeight, width, height)
-        val opts2 = BitmapFactory.Options().apply { inSampleSize = sample }
+        val opts2 =
+            BitmapFactory.Options().apply {
+                inSampleSize = sample
+            }
         val decoded = BitmapFactory.decodeFile(path, opts2) ?: return null
         val scaled = Bitmap.createScaledBitmap(decoded, width, height, true)
         bitmapToPngBytes(scaled)
