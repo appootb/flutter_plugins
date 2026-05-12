@@ -44,6 +44,22 @@ public class AdvancedClipboardPlugin: NSObject, FlutterPlugin, FlutterStreamHand
         case "stopListening":
             stopMonitoring()
             result(nil)
+        case "readCurrent":
+            DispatchQueue.main.async {
+                let contents = self.extractContents(from: self.pasteboard)
+                if contents.isEmpty {
+                    result(nil)
+                    return
+                }
+                let changeCount = self.pasteboard.changeCount
+                let entryMap: [String: Any] = [
+                    "timestamp": Int64(Date().timeIntervalSince1970 * 1000),
+                    "sourceApp": self.serializeApp(app: NSWorkspace.shared.frontmostApplication),
+                    "contents": contents,
+                    "uniqueIdentifier": String(changeCount),
+                ]
+                result(entryMap)
+            }
         case "write":
             if let args = call.arguments as? [String: Any],
                let contents = args["contents"] as? [[String: Any]] {

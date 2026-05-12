@@ -373,6 +373,26 @@ void AdvancedClipboardPlugin::HandleMethodCall(
   } else if (method_name.compare("stopListening") == 0) {
     StopMonitoring();
     result->Success();
+  } else if (method_name.compare("readCurrent") == 0) {
+    try {
+      DWORD seq = GetClipboardSequenceNumber();
+      auto entry = CreateClipboardEntry(seq);
+      auto contents_it =
+          entry.find(flutter::EncodableValue("contents"));
+      if (contents_it == entry.end()) {
+        result->Success(flutter::EncodableValue());
+        return;
+      }
+      auto* contents_list =
+          std::get_if<flutter::EncodableList>(&contents_it->second);
+      if (!contents_list || contents_list->empty()) {
+        result->Success(flutter::EncodableValue());
+        return;
+      }
+      result->Success(flutter::EncodableValue(entry));
+    } catch (...) {
+      result->Success(flutter::EncodableValue());
+    }
   } else if (method_name.compare("write") == 0) {
     const auto* arguments = method_call.arguments();
     if (arguments && std::holds_alternative<flutter::EncodableMap>(*arguments)) {

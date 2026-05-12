@@ -70,4 +70,21 @@ class MethodChannelAdvancedClipboard extends AdvancedClipboardPlatform {
       return false;
     }
   }
+
+  @override
+  Future<ClipboardEntry?> readCurrent() async {
+    try {
+      final Object? raw =
+          await methodChannel.invokeMethod<Object?>('readCurrent');
+      if (raw == null) return null;
+      if (raw is Map) {
+        return ClipboardEntry.fromMap(Map<dynamic, dynamic>.from(raw));
+      }
+      return null;
+    } on MissingPluginException {
+      return null;
+    } on PlatformException {
+      return null;
+    }
+  }
 }

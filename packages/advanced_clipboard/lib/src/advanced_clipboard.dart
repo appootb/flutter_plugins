@@ -44,6 +44,23 @@ class AdvancedClipboard {
     await AdvancedClipboardPlatform.instance.stopListening();
   }
 
+  /// Reads the system clipboard once and returns the same structured model as
+  /// streamed [ClipboardEntry] payloads from [startListening].
+  ///
+  /// This does **not** subscribe to clipboard change notifications. Use it for
+  /// explicit polling (especially on mobile when returning to foreground);
+  /// use [startListening] on desktop builds where continual monitoring is viable.
+  ///
+  /// Returns `null` when the clipboard looks empty from the perspective of this
+  /// plugin, contains only unsupported types after mapping, native access fails,
+  /// or no implementation is registered for this platform target.
+  Future<ClipboardEntry?> readCurrent() {
+    return AdvancedClipboardPlatform.instance.readCurrent();
+  }
+
+  /// Equivalent to [readCurrent].
+  Future<ClipboardEntry?> snapshot() => readCurrent();
+
   /// Writes plain text to the clipboard.
   ///
   /// The string is encoded as UTF-8 bytes.

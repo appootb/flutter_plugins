@@ -28,6 +28,19 @@ void main() {
               return null;
             case 'stopListening':
               return null;
+            case 'readCurrent':
+              return {
+                'timestamp': 99,
+                'uniqueIdentifier': 'snap',
+                'sourceApp': null,
+                'contents': [
+                  {
+                    'type': 'text',
+                    'raw': [65],
+                    'metadata': null,
+                  },
+                ],
+              };
             case 'write':
               return true;
           }
@@ -97,6 +110,16 @@ void main() {
     expect(entry.contents.single.content, 'AB');
 
     expect(methodCalls.any((c) => c.method == 'startListening'), isTrue);
+  });
+
+  test('readCurrent maps method channel map to ClipboardEntry', () async {
+    final entry = await platform.readCurrent();
+    expect(entry, isNotNull);
+    expect(entry!.timestamp, DateTime.fromMillisecondsSinceEpoch(99));
+    expect(entry.uniqueIdentifier, 'snap');
+    expect(entry.sourceApp, isNull);
+    expect(entry.contents.single.type, ClipboardContentType.plainText);
+    expect(methodCalls.any((c) => c.method == 'readCurrent'), isTrue);
   });
 
   test('stopListening invokes stopListening on method channel', () async {

@@ -54,4 +54,11 @@ abstract class AdvancedClipboardPlatform extends PlatformInterface {
   Future<bool> write(List<Map<String, dynamic>> contents) {
     throw UnimplementedError('write() has not been implemented.');
   }
+
+  /// Performs a single read of the system clipboard without starting [startListening].
+  ///
+  /// See [AdvancedClipboard.readCurrent] for `null` cases and typical usage notes.
+  Future<ClipboardEntry?> readCurrent() {
+    throw UnimplementedError('readCurrent() has not been implemented.');
+  }
 }

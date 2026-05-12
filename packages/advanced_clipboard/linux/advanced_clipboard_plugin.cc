@@ -40,6 +40,15 @@ struct _AdvancedClipboardPlugin {
   gboolean has_cached_app;
 };
 
+static FlValue* advanced_clipboard_make_entry_from_read(
+    AdvancedClipboardPlugin* self,
+    gchar* text,
+    GtkSelectionData* html_data,
+    GdkPixbuf* image,
+    GtkSelectionData* uri_data,
+    gint64 timestamp_ms,
+    const gchar* unique_identifier);
+
 static gboolean advanced_clipboard_check_clipboard(gpointer user_data);
 static void advanced_clipboard_start_monitoring(AdvancedClipboardPlugin* self);
 static void advanced_clipboard_stop_monitoring(AdvancedClipboardPlugin* self);
@@ -78,6 +87,65 @@ static void advanced_clipboard_plugin_handle_method_call(
     } else {
       g_autoptr(FlValue) result = fl_value_new_bool(FALSE);
       response = FL_METHOD_RESPONSE(fl_method_success_response_new(result));
+    }
+  } else if (strcmp(method, "readCurrent") == 0) {
+    GtkClipboard* clipboard = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
+    if (clipboard == nullptr) {
+      g_autoptr(FlValue) nullv = fl_value_new_null();
+      response =
+          FL_METHOD_RESPONSE(fl_method_success_response_new(nullv));
+    } else {
+      gchar* text = gtk_clipboard_wait_for_text(clipboard);
+
+      GtkSelectionData* html_data = nullptr;
+      GdkAtom html_atom = gdk_atom_intern("text/html", FALSE);
+      if (html_atom != GDK_NONE) {
+        html_data = gtk_clipboard_wait_for_contents(clipboard, html_atom);
+      }
+
+      GdkPixbuf* image = gtk_clipboard_wait_for_image(clipboard);
+
+      GtkSelectionData* uri_data = nullptr;
+      GdkAtom uri_atom = gdk_atom_intern("text/uri-list", FALSE);
+      if (uri_atom != GDK_NONE) {
+        uri_data = gtk_clipboard_wait_for_contents(clipboard, uri_atom);
+      }
+
+      gint64 timestamp_ms = g_get_real_time() / 1000;
+      g_autofree gchar* uid =
+          g_strdup_printf("snapshot-%" G_GINT64_FORMAT,
+                          g_get_monotonic_time());
+
+      FlValue* entry = advanced_clipboard_make_entry_from_read(
+          self,
+          text,
+          html_data,
+          image,
+          uri_data,
+          timestamp_ms,
+          uid);
+
+      if (html_data != nullptr) {
+        gtk_selection_data_free(html_data);
+      }
+      if (image != nullptr) {
+        g_object_unref(image);
+      }
+      if (uri_data != nullptr) {
+        gtk_selection_data_free(uri_data);
+      }
+      if (text != nullptr) {
+        g_free(text);
+      }
+
+      if (entry == nullptr) {
+        g_autoptr(FlValue) nullv = fl_value_new_null();
+        response =
+            FL_METHOD_RESPONSE(fl_method_success_response_new(nullv));
+      } else {
+        response =
+            FL_METHOD_RESPONSE(fl_method_success_response_new(entry));
+      }
     }
   } else {
     response = FL_METHOD_RESPONSE(fl_method_not_implemented_response_new());
@@ -233,6 +301,174 @@ static void advanced_clipboard_stop_monitoring(AdvancedClipboardPlugin* self) {
   }
 }
 
+static FlValue* advanced_clipboard_make_entry_from_read(
+    AdvancedClipboardPlugin* self,
+    gchar* text,
+    GtkSelectionData* html_data,
+    GdkPixbuf* image,
+    GtkSelectionData* uri_data,
+    gint64 timestamp_ms,
+    const gchar* unique_identifier) {
+  FlValue* contents = fl_value_new_list();
+
+  // Text & URL.
+  if (text != nullptr && *text != '\0') {
+    gsize len = strlen(text);
+    FlValue* raw = fl_value_new_uint8_list(
+        reinterpret_cast<const uint8_t*>(text), len);
+
+    FlValue* text_part = fl_value_new_map();
+    fl_value_set_string(text_part, "type",
+                        fl_value_new_string("text"));
+    fl_value_set_string(text_part, "raw", raw);
+    fl_value_set_string(text_part, "metadata",
+                        fl_value_new_null());
+    fl_value_append(contents, text_part);
+
+    if (g_str_has_prefix(text, "http://") ||
+        g_str_has_prefix(text, "https://")) {
+      FlValue* url_raw = fl_value_new_uint8_list(
+          reinterpret_cast<const uint8_t*>(text), len);
+      FlValue* url_part = fl_value_new_map();
+      fl_value_set_string(url_part, "type",
+                          fl_value_new_string("url"));
+      fl_value_set_string(url_part, "raw", url_raw);
+      fl_value_set_string(url_part, "metadata",
+                          fl_value_new_null());
+      fl_value_append(contents, url_part);
+    }
+  }
+
+  // HTML.
+  if (html_data != nullptr &&
+      gtk_selection_data_get_length(html_data) > 0) {
+    const guchar* hbytes = gtk_selection_data_get_data(html_data);
+    gint hlen = gtk_selection_data_get_length(html_data);
+    if (hbytes != nullptr && hlen > 0) {
+      FlValue* raw = fl_value_new_uint8_list(hbytes, (gsize)hlen);
+      FlValue* html_part = fl_value_new_map();
+      fl_value_set_string(html_part, "type",
+                          fl_value_new_string("html"));
+      fl_value_set_string(html_part, "raw", raw);
+      fl_value_set_string(html_part, "metadata",
+                          fl_value_new_null());
+      fl_value_append(contents, html_part);
+    }
+  }
+
+  // Image (PNG).
+  if (image != nullptr) {
+    gchar* png_buf = nullptr;
+    gsize png_size = 0;
+    GError* img_error = nullptr;
+    if (gdk_pixbuf_save_to_buffer(image,
+                                  &png_buf,
+                                  &png_size,
+                                  "png",
+                                  &img_error,
+                                  nullptr)) {
+      FlValue* raw = fl_value_new_uint8_list(
+          reinterpret_cast<const guchar*>(png_buf),
+          png_size);
+
+      FlValue* meta = fl_value_new_map();
+      fl_value_set_string(meta, "format",
+                          fl_value_new_string("png"));
+
+      FlValue* image_part = fl_value_new_map();
+      fl_value_set_string(image_part, "type",
+                          fl_value_new_string("image"));
+      fl_value_set_string(image_part, "raw", raw);
+      fl_value_set_string(image_part, "metadata", meta);
+      fl_value_append(contents, image_part);
+    }
+    if (img_error != nullptr) {
+      g_error_free(img_error);
+    }
+    g_free(png_buf);
+  }
+
+  // Files (text/uri-list).
+  if (uri_data != nullptr &&
+      gtk_selection_data_get_length(uri_data) > 0) {
+    const gchar* uris =
+        (const gchar*)gtk_selection_data_get_data(uri_data);
+    if (uris != nullptr) {
+      gchar** lines = g_strsplit(uris, "\n", -1);
+      GString* file_text = g_string_new(nullptr);
+      for (gint i = 0; lines[i] != nullptr; ++i) {
+        const gchar* line = lines[i];
+        if (line[0] == '\0' || line[0] == '#') {
+          continue;
+        }
+        gchar* path = g_filename_from_uri(line, nullptr, nullptr);
+        if (path == nullptr) {
+          continue;
+        }
+
+        gboolean is_dir =
+            g_file_test(path, G_FILE_TEST_IS_DIR);
+
+        FlValue* raw = fl_value_new_uint8_list(
+            reinterpret_cast<const guchar*>(path),
+            strlen(path));
+
+        FlValue* meta = fl_value_new_map();
+        fl_value_set_string(meta, "isDirectory",
+                            fl_value_new_bool(is_dir));
+
+        FlValue* file_part = fl_value_new_map();
+        fl_value_set_string(file_part, "type",
+                            fl_value_new_string("fileUrl"));
+        fl_value_set_string(file_part, "raw", raw);
+        fl_value_set_string(file_part, "metadata", meta);
+        fl_value_append(contents, file_part);
+
+        if (file_text->len > 0) {
+          g_string_append_c(file_text, '\n');
+        }
+        g_string_append(file_text, path);
+
+        g_free(path);
+      }
+      g_strfreev(lines);
+
+      if (file_text->len > 0 && (text == nullptr || *text == '\0')) {
+        FlValue* raw = fl_value_new_uint8_list(
+            reinterpret_cast<const guchar*>(file_text->str),
+            file_text->len);
+        FlValue* text_part = fl_value_new_map();
+        fl_value_set_string(text_part, "type",
+                            fl_value_new_string("text"));
+        fl_value_set_string(text_part, "raw", raw);
+        fl_value_set_string(text_part, "metadata",
+                            fl_value_new_null());
+        fl_value_append(contents, text_part);
+      }
+
+      g_string_free(file_text, TRUE);
+    }
+  }
+
+  if (fl_value_get_length(contents) == 0) {
+    fl_value_unref(contents);
+    return nullptr;
+  }
+
+  FlValue* entry = fl_value_new_map();
+  fl_value_set_string(entry, "timestamp",
+                      fl_value_new_int(timestamp_ms));
+
+  FlValue* source_app = advanced_clipboard_get_source_app(self);
+  fl_value_set_string(entry, "sourceApp", source_app);
+
+  fl_value_set_string(entry, "contents", contents);
+  fl_value_set_string(entry, "uniqueIdentifier",
+                      fl_value_new_string(unique_identifier));
+
+  return entry;
+}
+
 static gboolean advanced_clipboard_check_clipboard(gpointer user_data) {
   AdvancedClipboardPlugin* self =
       ADVANCED_CLIPBOARD_PLUGIN(user_data);
@@ -364,160 +600,19 @@ static gboolean advanced_clipboard_check_clipboard(gpointer user_data) {
   // Build ClipboardEntry.
   gint64 timestamp_ms = g_get_real_time() / 1000;
 
-  g_autoptr(FlValue) entry = fl_value_new_map();
+  self->sequence += 1;
+  gchar* seq_str = g_strdup_printf("%" G_GUINT64_FORMAT,
+                                   self->sequence);
 
-  fl_value_set_string(entry, "timestamp",
-                      fl_value_new_int(timestamp_ms));
-
-  FlValue* source_app = advanced_clipboard_get_source_app(self);
-  fl_value_set_string(entry, "sourceApp", source_app);
-
-  FlValue* contents = fl_value_new_list();
-
-  // Text & URL.
-  if (text != nullptr && *text != '\0') {
-    gsize len = strlen(text);
-    FlValue* raw = fl_value_new_uint8_list(
-        reinterpret_cast<const uint8_t*>(text), len);
-
-    FlValue* text_part = fl_value_new_map();
-    fl_value_set_string(text_part, "type",
-                        fl_value_new_string("text"));
-    fl_value_set_string(text_part, "raw", raw);
-    fl_value_set_string(text_part, "metadata",
-                        fl_value_new_null());
-    fl_value_append(contents, text_part);
-
-    if (g_str_has_prefix(text, "http://") ||
-        g_str_has_prefix(text, "https://")) {
-      FlValue* url_raw = fl_value_new_uint8_list(
-          reinterpret_cast<const uint8_t*>(text), len);
-      FlValue* url_part = fl_value_new_map();
-      fl_value_set_string(url_part, "type",
-                          fl_value_new_string("url"));
-      fl_value_set_string(url_part, "raw", url_raw);
-      fl_value_set_string(url_part, "metadata",
-                          fl_value_new_null());
-      fl_value_append(contents, url_part);
-    }
-  }
-
-  // HTML.
-  if (html_data != nullptr &&
-      gtk_selection_data_get_length(html_data) > 0) {
-    const guchar* hbytes = gtk_selection_data_get_data(html_data);
-    gint hlen = gtk_selection_data_get_length(html_data);
-    if (hbytes != nullptr && hlen > 0) {
-      FlValue* raw = fl_value_new_uint8_list(hbytes, (gsize)hlen);
-      FlValue* html_part = fl_value_new_map();
-      fl_value_set_string(html_part, "type",
-                          fl_value_new_string("html"));
-      fl_value_set_string(html_part, "raw", raw);
-      fl_value_set_string(html_part, "metadata",
-                          fl_value_new_null());
-      fl_value_append(contents, html_part);
-    }
-  }
-
-  // Image (PNG).
-  if (image != nullptr) {
-    gchar* png_buf = nullptr;
-    gsize png_size = 0;
-    GError* img_error = nullptr;
-    if (gdk_pixbuf_save_to_buffer(image,
-                                  &png_buf,
-                                  &png_size,
-                                  "png",
-                                  &img_error,
-                                  nullptr)) {
-      FlValue* raw = fl_value_new_uint8_list(
-          reinterpret_cast<const guchar*>(png_buf),
-          png_size);
-
-      FlValue* meta = fl_value_new_map();
-      fl_value_set_string(meta, "format",
-                          fl_value_new_string("png"));
-
-      FlValue* image_part = fl_value_new_map();
-      fl_value_set_string(image_part, "type",
-                          fl_value_new_string("image"));
-      fl_value_set_string(image_part, "raw", raw);
-      fl_value_set_string(image_part, "metadata", meta);
-      fl_value_append(contents, image_part);
-    }
-    if (img_error != nullptr) {
-      g_error_free(img_error);
-    }
-    g_free(png_buf);
-  }
-
-  // Files (text/uri-list).
-  if (uri_data != nullptr &&
-      gtk_selection_data_get_length(uri_data) > 0) {
-    const gchar* uris =
-        (const gchar*)gtk_selection_data_get_data(uri_data);
-    if (uris != nullptr) {
-      gchar** lines = g_strsplit(uris, "\n", -1);
-      // Collect all file paths to optionally synthesize a plain-text
-      // representation (one path per line) when there is no text/plain.
-      GString* file_text = g_string_new(nullptr);
-      for (gint i = 0; lines[i] != nullptr; ++i) {
-        const gchar* line = lines[i];
-        if (line[0] == '\0' || line[0] == '#') {
-          continue;
-        }
-        gchar* path = g_filename_from_uri(line, nullptr, nullptr);
-        if (path == nullptr) {
-          continue;
-        }
-
-        gboolean is_dir =
-            g_file_test(path, G_FILE_TEST_IS_DIR);
-
-        FlValue* raw = fl_value_new_uint8_list(
-            reinterpret_cast<const guchar*>(path),
-            strlen(path));
-
-        FlValue* meta = fl_value_new_map();
-        fl_value_set_string(meta, "isDirectory",
-                            fl_value_new_bool(is_dir));
-
-        FlValue* file_part = fl_value_new_map();
-        fl_value_set_string(file_part, "type",
-                            fl_value_new_string("fileUrl"));
-        fl_value_set_string(file_part, "raw", raw);
-        fl_value_set_string(file_part, "metadata", meta);
-        fl_value_append(contents, file_part);
-
-        // Build newline-separated plain-text of file paths.
-        if (file_text->len > 0) {
-          g_string_append_c(file_text, '\n');
-        }
-        g_string_append(file_text, path);
-
-        g_free(path);
-      }
-      g_strfreev(lines);
-
-      // If there was no text/plain on the clipboard, also expose the file
-      // paths as a single "text" part (one path per line), to mirror
-      // macOS/Windows behavior where copy-file gives both fileUrl and text.
-      if (file_text->len > 0 && (text == nullptr || *text == '\0')) {
-        FlValue* raw = fl_value_new_uint8_list(
-            reinterpret_cast<const guchar*>(file_text->str),
-            file_text->len);
-        FlValue* text_part = fl_value_new_map();
-        fl_value_set_string(text_part, "type",
-                            fl_value_new_string("text"));
-        fl_value_set_string(text_part, "raw", raw);
-        fl_value_set_string(text_part, "metadata",
-                            fl_value_new_null());
-        fl_value_append(contents, text_part);
-      }
-
-      g_string_free(file_text, TRUE);
-    }
-  }
+  g_autoptr(FlValue) entry = advanced_clipboard_make_entry_from_read(
+      self,
+      text,
+      html_data,
+      image,
+      uri_data,
+      timestamp_ms,
+      seq_str);
+  g_free(seq_str);
 
   // Free temporary clipboard data objects.
   if (html_data != nullptr) {
@@ -533,19 +628,9 @@ static gboolean advanced_clipboard_check_clipboard(gpointer user_data) {
     g_free(text);
   }
 
-  // If we didn't recognize any contents, don't send an event.
-  if (fl_value_get_length(contents) == 0) {
+  if (entry == nullptr) {
     return G_SOURCE_CONTINUE;
   }
-
-  fl_value_set_string(entry, "contents", contents);
-
-  self->sequence += 1;
-  gchar* seq_str = g_strdup_printf("%" G_GUINT64_FORMAT,
-                                   self->sequence);
-  fl_value_set_string(entry, "uniqueIdentifier",
-                      fl_value_new_string(seq_str));
-  g_free(seq_str);
 
   g_autoptr(GError) error = nullptr;
   if (!fl_event_channel_send(self->event_channel,

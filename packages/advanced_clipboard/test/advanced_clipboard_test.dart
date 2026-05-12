@@ -32,6 +32,9 @@ class MockAdvancedClipboardPlatform
     lastWriteContents = contents;
     return true;
   }
+
+  @override
+  Future<ClipboardEntry?> readCurrent() async => null;
 }
 
 void main() {
