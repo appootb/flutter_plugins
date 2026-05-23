@@ -26,4 +26,15 @@ abstract class SystemUsagePlatform extends PlatformInterface {
   Future<String?> getPlatformVersion() {
     throw UnimplementedError('platformVersion() has not been implemented.');
   }
+
+  /// Get a one-shot snapshot of system usage info.
+  ///
+  /// [includes] is an optional list of resource type names (e.g. 'cpu',
+  /// 'memory', 'gpu'). Platform implementations can use this to avoid
+  /// collecting unused metrics.
+  ///
+  /// Returns a JSON-like map so platform implementations can stay lightweight.
+  Future<Map<String, dynamic>?> getSnapshot({List<String>? includes}) {
+    throw UnimplementedError('getSnapshot() has not been implemented.');
+  }
 }

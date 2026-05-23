@@ -1,7 +1,8 @@
-import 'package:flutter/material.dart';
 import 'dart:async';
 
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:system_usage/src/models.dart';
 import 'package:system_usage/system_usage.dart';
 
 void main() {
@@ -18,6 +19,8 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   String _platformVersion = 'Unknown';
   final _systemUsagePlugin = SystemUsage();
+  String _snapshot = '';
+  StreamSubscription<SystemSnapshot>? _snapshotSub;
 
   @override
   void initState() {
@@ -32,7 +35,8 @@ class _MyAppState extends State<MyApp> {
     // We also handle the message potentially returning null.
     try {
       platformVersion =
-          await _systemUsagePlugin.getPlatformVersion() ?? 'Unknown platform version';
+          await _systemUsagePlugin.getPlatformVersion() ??
+          'Unknown platform version';
     } on PlatformException {
       platformVersion = 'Failed to get platform version.';
     }
@@ -45,6 +49,23 @@ class _MyAppState extends State<MyApp> {
     setState(() {
       _platformVersion = platformVersion;
     });
+    _snapshotSub ??= _systemUsagePlugin
+        .watch(
+          includes: [ResourceType.gpu],
+          interval: const Duration(seconds: 1),
+        )
+        .listen((snap) {
+          if (!mounted) return;
+          setState(() {
+            _snapshot = snap.gpu?.usage.toString() ?? 'n/a';
+          });
+        });
+  }
+
+  @override
+  void dispose() {
+    _snapshotSub?.cancel();
+    super.dispose();
   }
 
   @override
@@ -52,7 +73,9 @@ class _MyAppState extends State<MyApp> {
     return MaterialApp(
       home: Scaffold(
         appBar: AppBar(title: const Text('Plugin example app')),
-        body: Center(child: Text('Running on: $_platformVersion\n')),
+        body: Center(
+          child: Text('Running on: $_platformVersion\n\nSnapshot: $_snapshot'),
+        ),
       ),
     );
   }

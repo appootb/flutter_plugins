@@ -16,4 +16,17 @@ class MethodChannelSystemUsage extends SystemUsagePlatform {
     );
     return version;
   }
+
+  @override
+  Future<Map<String, dynamic>?> getSnapshot({List<String>? includes}) async {
+    final args = <String, dynamic>{};
+    if (includes != null && includes.isNotEmpty) {
+      args['includes'] = includes;
+    }
+    final snapshot = await methodChannel.invokeMapMethod<String, dynamic>(
+      'getSnapshot',
+      args,
+    );
+    return snapshot;
+  }
 }
