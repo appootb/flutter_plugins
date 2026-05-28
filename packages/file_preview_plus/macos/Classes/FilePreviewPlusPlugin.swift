@@ -25,6 +25,17 @@ public class FilePreviewPlusPlugin: NSObject, FlutterPlugin {
 }
 
 private extension FilePreviewPlusPlugin {
+  func normalizePath(_ path: String) -> String {
+    let standardized = URL(fileURLWithPath: path).standardizedFileURL
+    return standardized.resolvingSymlinksInPath().path
+  }
+
+  func systemIconPng(path: String, size: CGSize) -> Data? {
+    let normalized = normalizePath(path)
+    let icon = NSWorkspace.shared.icon(forFile: normalized)
+    return icon.pngData(size: size)
+  }
+
   func handleGetFileInfo(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     guard let args = call.arguments as? [String: Any],
           let path = args["path"] as? String,
@@ -79,10 +90,23 @@ private extension FilePreviewPlusPlugin {
     let height = (args["height"] as? NSNumber)?.doubleValue ?? 256.0
     let size = CGSize(width: max(1.0, width), height: max(1.0, height))
 
-    let url = URL(fileURLWithPath: path)
+    let normalizedPath = normalizePath(path)
+    let url = URL(fileURLWithPath: normalizedPath)
     let scale = NSScreen.main?.backingScaleFactor ?? 2.0
 
     DispatchQueue.global(qos: .userInitiated).async {
+      // Directory: prefer returning Finder/system icon (QuickLook thumbnailing is
+      // often unavailable for folders under App Sandbox without access).
+      var isDirectory: ObjCBool = false
+      if FileManager.default.fileExists(atPath: normalizedPath, isDirectory: &isDirectory),
+         isDirectory.boolValue
+      {
+        if let bytes = self.systemIconPng(path: normalizedPath, size: size) {
+          DispatchQueue.main.async { result(FlutterStandardTypedData(bytes: bytes)) }
+          return
+        }
+      }
+
       let request = QLThumbnailGenerator.Request(
         fileAt: url,
         size: size,
@@ -93,16 +117,14 @@ private extension FilePreviewPlusPlugin {
       QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { rep, error in
         if let cgImage = rep?.cgImage {
           let nsImage = NSImage(cgImage: cgImage, size: size)
-          if let bytes = nsImage.pngData() {
+          if let bytes = nsImage.pngData(size: size) {
             DispatchQueue.main.async { result(FlutterStandardTypedData(bytes: bytes)) }
             return
           }
         }
 
         // Fallback to system icon
-        let icon = NSWorkspace.shared.icon(forFile: path)
-        icon.size = size
-        if let bytes = icon.pngData() {
+        if let bytes = self.systemIconPng(path: normalizedPath, size: size) {
           DispatchQueue.main.async { result(FlutterStandardTypedData(bytes: bytes)) }
           return
         }
@@ -120,10 +142,36 @@ private extension FilePreviewPlusPlugin {
 }
 
 private extension NSImage {
-  func pngData() -> Data? {
-    guard let tiff = self.tiffRepresentation,
-          let rep = NSBitmapImageRep(data: tiff)
-    else { return nil }
+  func pngData(size: CGSize) -> Data? {
+    let width = Int(max(1, size.width.rounded()))
+    let height = Int(max(1, size.height.rounded()))
+
+    guard let rep = NSBitmapImageRep(
+      bitmapDataPlanes: nil,
+      pixelsWide: width,
+      pixelsHigh: height,
+      bitsPerSample: 8,
+      samplesPerPixel: 4,
+      hasAlpha: true,
+      isPlanar: false,
+      colorSpaceName: .deviceRGB,
+      bytesPerRow: 0,
+      bitsPerPixel: 0
+    ) else {
+      return nil
+    }
+    rep.size = size
+
+    NSGraphicsContext.saveGraphicsState()
+    defer { NSGraphicsContext.restoreGraphicsState() }
+    guard let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
+    NSGraphicsContext.current = ctx
+    ctx.imageInterpolation = .high
+
+    let rect = NSRect(x: 0, y: 0, width: size.width, height: size.height)
+    self.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1.0)
+    ctx.flushGraphics()
+
     return rep.representation(using: .png, properties: [:])
   }
 }
