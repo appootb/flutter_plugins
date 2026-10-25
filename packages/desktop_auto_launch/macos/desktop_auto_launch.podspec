@@ -14,7 +14,7 @@ A Flutter plugin that enables your desktop applications to automatically launch 
   s.author           = { 'Your Company' => 'email@example.com' }
 
   s.source           = { :path => '.' }
-  s.source_files = 'Classes/**/*'
+  s.source_files = 'desktop_auto_launch/Sources/desktop_auto_launch/**/*.swift'
 
   # If your plugin requires a privacy manifest, for example if it collects user
   # data, update the PrivacyInfo.xcprivacy file to describe your plugin's

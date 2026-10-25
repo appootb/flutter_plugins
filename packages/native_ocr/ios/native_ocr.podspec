@@ -13,7 +13,7 @@ A Flutter plugin that provides native OCR capabilities using platform-specific f
   s.license          = { :file => '../LICENSE' }
   s.author           = { 'Your Company' => 'email@example.com' }
   s.source           = { :path => '.' }
-  s.source_files = 'Classes/**/*'
+  s.source_files = 'native_ocr/Sources/native_ocr/**/*.swift'
   s.dependency 'Flutter'
   s.platform = :ios, '13.0'
 

@@ -10,7 +10,7 @@ Cross-platform clipboard read/write and snapshot API for richer payloads.
   s.license          = { :file => '../LICENSE' }
   s.author           = { 'Appootb' => 'email@example.com' }
   s.source           = { :path => '.' }
-  s.source_files = 'Classes/**/*'
+  s.source_files = 'advanced_clipboard/Sources/advanced_clipboard/**/*.swift'
   s.dependency 'Flutter'
   s.platform = :ios, '13.0'
   s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES', 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386' }

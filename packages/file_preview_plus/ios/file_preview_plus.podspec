@@ -13,7 +13,7 @@ A comprehensive Flutter plugin to fetch native file metadata, thumbnails, and sy
   s.license          = { :file => '../LICENSE' }
   s.author           = { 'Your Company' => 'email@example.com' }
   s.source           = { :path => '.' }
-  s.source_files = 'Classes/**/*'
+  s.source_files = 'file_preview_plus/Sources/file_preview_plus/**/*.swift'
   s.dependency 'Flutter'
   s.platform = :ios, '13.0'
 
